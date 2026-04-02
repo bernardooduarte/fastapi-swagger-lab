@@ -1,22 +1,40 @@
 from fastapi import FastAPI
+from pydantic import BaseModel, Field
 
-app = FastAPI()
+app = FastAPI(
+    title="FastAPI Swagger Lab",
+    description="API de estudo para aprender FastAPI, Swagger (OpenAPI), modelos Pydantic e, depois, integração com IA.",
+    version="0.1.0",
+)
 
-@app.get("/")
+class Item(BaseModel):
+    name: str = Field(..., description="Nome do item")
+    price: float = Field(..., gt=0, description="Preço do item (maior que zero)")
+    description: str | None = Field(
+        default=None,
+        description="Descrição opcional do item",
+        example="Um mouse gamer com 6 botões e iluminação RGB",
+    )
+    in_stock: bool = Field(default=True, description="Se o item está em estoque")
+
+class ItemResponse(BaseModel):
+    id: int
+    name: str
+    price: float
+    in_stock: bool
+
+@app.get("/", tags=["root"])
 def read_root():
     return {"message": "Hello, FastAPI with Swagger!"}
 
-@app.get("/hello/{name}")
+@app.get("/hello/{name}", tags=["greetings"])
 def read_hello(name: str):
     return {"message": f"Hello, {name}!"}
 
-@app.get("/items")
+@app.get("/items", tags=["items"])
 def read_items(skip: int = 0, limit: int = 10):
-    items = [
-        {"id": 1, "name": "Item 1"},
-        {"id": 2, "name": "Item 2"},
-        {"id": 3, "name": "Item 3"},
-        {"id": 4, "name": "Item 4"},
-        {"id": 5, "name": "Item 5"},
-    ]
-    return items[skip : skip + limit]
+    ...
+
+@app.post("/items", response_model=ItemResponse, tags=["items"])
+def create_item(item: Item):
+    ...
