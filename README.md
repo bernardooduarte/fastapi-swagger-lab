@@ -17,6 +17,16 @@ pip install -r requirements.txt
 
 uvicorn main:app --reload
 ```
+# Endpoints
+```bash
+read_root()
+
+read_hello()
+
+read_items()
+
+create_item()
+```
 
 Acesse:
 
