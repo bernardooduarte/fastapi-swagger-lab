@@ -7,3 +7,6 @@
 # Arquivos temporários do Python
 __pycache__/
 *.pyc
+
+# Configurações de ambiente
+.env
