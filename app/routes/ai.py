@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from google.api_core import exceptions as google_exceptions
-import google.generativeai as genai
+from google import genai
 
 from app.config import GEMINI_API_KEY, GEMINI_MODEL
 
