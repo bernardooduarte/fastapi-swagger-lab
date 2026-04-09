@@ -5,7 +5,7 @@ from typing import Generic, TypeVar, List
 
 T = TypeVar("T")
 
-class Repository(Generic[T], ABC):
+class Controller(Generic[T], ABC):
     @abstractmethod
     def get(self, id: int) -> T:
         raise NotImplementedError

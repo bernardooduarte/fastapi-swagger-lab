@@ -42,6 +42,6 @@ def get_session():
         yield session
 
 def init_db():
-    from app.models import AccountDB
+    from app.models import AccountDB, UserDB
 
     SQLModel.metadata.create_all(engine)

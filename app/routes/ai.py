@@ -2,16 +2,25 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from google.api_core import exceptions as google_exceptions
 from google import genai
+from google.genai import types
 
 from app.config import GEMINI_API_KEY, GEMINI_MODEL
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
 class AIRequest(BaseModel):
-    prompt: str = Field(..., description="Texto de entrada para o modelo de IA")
+    prompt: str = Field(
+        ...,
+        description="Texto de entrada para o modelo de IA",
+        example="Resuma em 3 linhas o que é FastAPI.",
+    )
 
 class AIResponse(BaseModel):
-    output: str = Field(..., description="Resposta gerada pela IA")
+    output: str = Field(
+        ...,
+        description="Resposta gerada pela IA",
+        example="FastAPI é um framework moderno para APIs em Python...",
+    )
 
 @router.post("/chat", response_model=AIResponse)
 def ai_chat(data: AIRequest):
@@ -19,14 +28,11 @@ def ai_chat(data: AIRequest):
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY não configurada")
     
     try:
-        genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel(GEMINI_MODEL)
-
-        response = model.generate_content(
-            data.prompt,
-            generation_config={
-                "temperature": 0.7,
-            }
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=data.prompt,
+            config=types.GenerateContentConfig(temperature=0.7),
         )
     except google_exceptions.ResourceExhausted:
         raise HTTPException(

@@ -1,67 +1,81 @@
 # FastAPI Swagger Lab
 
-API de estudo com FastAPI, documentação Swagger (OpenAPI), autenticação Bearer, persistência em PostgreSQL e integração com Gemini.
+API de estudo com FastAPI, Swagger/OpenAPI, autenticação JWT com hash de senha, persistência em PostgreSQL e integração com Gemini.
 
 ## Visão Geral
 
-O projeto foi estruturado com separação de responsabilidades usando padrões na camada de rotas e na camada de acesso a dados.
+O projeto foi organizado para separar responsabilidades entre rotas, controle de regras e acesso a dados. A aplicação expõe exemplos de leitura e criação de itens, criação e movimentação de contas, autenticação real com JWT e um endpoint de IA.
 
-Principais grupos de endpoint:
+## Funcionalidades
 
-- items: exemplo simples em memória para leitura e criação de itens.
-- accounts: criação e movimentação de contas com persistência em PostgreSQL.
-- auth: login fake para obter token Bearer e testar endpoints protegidos.
-- ai: chat com Gemini usando chave de API via .env.
+- `items`: exemplo simples em memória para leitura e criação de itens.
+- `accounts`: criação, consulta, depósito e saque com persistência em PostgreSQL.
+- `auth`: registro e login real com hash de senha e JWT.
+- `ai`: chat com Gemini usando a API `google-genai`.
 
-## Arquitetura e Patterns
+## Arquitetura
 
-### 1) Router Pattern (camada HTTP)
+### 1) Router Pattern
 
-As rotas ficam em `app/routes` e concentram apenas responsabilidades de API:
+As rotas ficam em `app/routes` e concentram a camada HTTP:
 
-- receber e validar entrada HTTP;
-- aplicar autenticação/autorização via `Depends`;
-- delegar regras de negócio/acesso a dados para componentes específicos;
-- traduzir exceções em respostas HTTP (`400`, `401`, `404`, `429`, `502`, etc).
+- recebem e validam entrada;
+- aplicam autenticação e autorização com `Depends`;
+- delegam regras de negócio para controllers/repositórios;
+- traduzem erros para respostas HTTP.
 
-Com isso, a camada de rota fica fina, previsível e fácil de manter.
+### 2) Controller Pattern
 
-### 2) Repository Pattern (camada de dados)
+Os controllers ficam em `app/controllers` e servem como camada intermediária entre HTTP e repositório:
 
-Os repositórios ficam em `app/repositories` e abstraem o acesso ao banco com SQLModel/Session:
+- encapsulam regras de operação;
+- mantêm a rota fina;
+- evitam que a rota fale direto com o banco quando não precisa.
 
-- `Repository` base define contrato comum;
-- `AccountRepository` implementa operações de conta (`create`, `get`, `deposit`, `withdraw`, etc);
-- regras de persistência e consistência de dados ficam centralizadas nessa camada.
+### 3) Repository Pattern
 
-Isso reduz acoplamento entre HTTP e banco de dados, facilitando evolução e testes.
+Os repositórios ficam em `app/repositories` e concentram o acesso ao banco com SQLModel/Session:
 
-### 3) Dependency Injection Pattern (FastAPI Depends)
+- `AccountRepository` executa operações de conta;
+- `UserRepository` executa consultas e persistência de usuários;
+- o contrato base está em `app/repositories/base.py`.
 
-A ligação entre camadas é feita com injeção de dependência:
+### 4) Dependency Injection
 
-- rota injeta `AccountRepository` usando `Depends(get_account_repository)`;
-- repositório injeta sessão do banco via `Depends(get_session)`.
+FastAPI injeta dependências para conectar as camadas:
 
-Esse padrão permite trocar implementações com menor impacto no restante do código.
+- rota injeta controller ou repositório com `Depends(...)`;
+- repositório injeta sessão do banco com `Depends(get_session)`;
+- autenticação injeta o usuário atual via `get_current_user`.
 
-### Fluxo de uma requisição de conta
+## Fluxo de Requisição
 
-1. Request chega em `app/routes/accounts.py`.
-2. Rota valida entrada e autenticação.
-3. Rota delega operação para `AccountRepository`.
-4. Repositório executa query/update no PostgreSQL.
-5. Resultado volta para rota, que responde em formato HTTP.
+### Contas
+
+1. A requisição chega em `app/routes/accounts.py`.
+2. A rota exige JWT válido.
+3. A rota delega a operação para `AccountController`.
+4. O controller chama `AccountRepository`.
+5. O repositório lê ou atualiza o PostgreSQL.
+6. A resposta volta em formato HTTP.
+
+### Autenticação
+
+1. O usuário faz `POST /auth/register` ou `POST /auth/login`.
+2. A senha é armazenada com hash usando `passlib[bcrypt]`.
+3. O login compara a senha enviada com o hash salvo.
+4. Se válido, a API gera um JWT real com `sub` e `exp`.
+5. As rotas protegidas validam esse token em cada requisição.
 
 ## Requisitos
 
 - Python 3.12+
-- PostgreSQL local ativo em localhost:5432
+- PostgreSQL local ativo em `localhost:5432`
 - Credenciais padrão definidas no código:
-  - usuário: postgres
-  - senha: postgres
-  - banco de administração: postgres
-  - banco de aplicação: accounts
+  - usuário: `postgres`
+  - senha: `postgres`
+  - banco de administração: `postgres`
+  - banco da aplicação: `accounts`
 
 ## Configuração
 
@@ -78,11 +92,19 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-3. Configure o arquivo .env.
+3. Configure o arquivo `.env`.
 
 ```env
+SECRET_KEY=sua_chave_secreta_aqui
+ACCESS_TOKEN_EXPIRE_MINUTES=30
 GEMINI_API_KEY=seu_token_aqui
 GEMINI_MODEL=gemini-2.5-flash
+```
+
+Para gerar a `SECRET_KEY`, use:
+
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
 ## Como Executar
@@ -101,75 +123,56 @@ Aplicação disponível em:
 
 Na inicialização do app:
 
-- o banco accounts é criado automaticamente caso não exista;
-- a tabela de contas é criada via SQLModel metadata.create_all.
+- o banco `accounts` é criado automaticamente caso não exista;
+- as tabelas de `AccountDB` e `UserDB` são criadas via `SQLModel.metadata.create_all`.
 
-A configuração e bootstrap do banco estão em app/database.py.
+A configuração e o bootstrap do banco estão em `app/database.py`.
 
-## Autenticação no Swagger
+## Autenticação JWT
 
-As rotas de accounts exigem token Bearer.
+As rotas de `accounts` exigem token Bearer JWT.
 
 Fluxo recomendado:
 
-1. Chame POST /auth/fake-login com:
+1. Faça `POST /auth/register` ou `POST /auth/login` com credenciais válidas.
+2. Copie o campo `access_token` retornado.
+3. Clique em `Authorize` no Swagger.
+4. Informe o token como:
+   - `meu-token-jwt`
+   - `Bearer meu-token-jwt`
+5. Acesse as rotas protegidas de `accounts`.
 
-```json
-{
-  "username": "qualquer_valor",
-  "password": "qualquer_valor"
-}
-```
+Se o token estiver ausente, inválido ou expirado, a API retorna `401`.
 
-2. Copie o campo access_token.
-3. Clique em Authorize no Swagger.
-4. Informe o token de uma destas formas:
-   - meu-token-secreto
-   - Bearer meu-token-secreto
-5. Acesse as rotas de accounts.
-
-Se token ausente ou inválido, a API retorna 401.
-
-## Endpoints Principais
+## Endpoints
 
 ### Root e exemplo
 
-- GET /
-- GET /hello/{name}
+- `GET /`
+- `GET /hello/{name}`
 
 ### Items
 
-- GET /items?skip=0&limit=10
-- POST /items
+- `GET /items?skip=0&limit=10`
+- `POST /items`
 
 ### Auth
 
-- POST /auth/fake-login
+- `POST /auth/register`
+- `POST /auth/login`
 
-### Accounts (protegidos)
+### Accounts protegidos
 
-- POST /accounts
-- GET /accounts/{account_id}
-- POST /accounts/{account_id}/deposit
-- POST /accounts/{account_id}/withdraw
+- `POST /accounts`
+- `GET /accounts/{account_id}`
+- `POST /accounts/{account_id}/deposit`
+- `POST /accounts/{account_id}/withdraw`
 
-Payload de movimentação:
+### AI
 
-```json
-{
-  "amount": 100
-}
-```
+- `POST /ai/chat`
 
-Regras atuais de movimentação:
-
-- amount deve ser maior que zero;
-- saque com valor maior que o saldo retorna 400 com detail `Insufficient funds`;
-- conta inexistente retorna 404 Account not found.
-
-## Comportamento da Rota de IA
-
-A rota POST /ai/chat recebe:
+Payload esperado:
 
 ```json
 {
@@ -177,21 +180,53 @@ A rota POST /ai/chat recebe:
 }
 ```
 
-Respostas de erro esperadas:
+## Modelos e Swagger
 
-- 500 quando GEMINI_API_KEY não está configurada;
-- 429 quando a quota do Gemini foi excedida;
-- 502 para falha na chamada ao provedor ou resposta vazia/inesperada.
+Os schemas usam `Field()` com `description` e `example`, então o Swagger exibe documentação enriquecida nos campos principais.
+
+Exemplos usados no projeto:
+
+- `amount`: valor da movimentação;
+- `username` e `password`: login e registro;
+- `prompt`: entrada para o Gemini;
+- `name`, `price` e `in_stock`: item de exemplo.
 
 ## Dependências Relevantes
 
 Além do stack FastAPI, esta API depende diretamente de:
 
-- sqlmodel
-- psycopg2-binary
-- google-generativeai
+- `sqlmodel`
+- `psycopg2-binary`
+- `google-genai`
+- `passlib[bcrypt]`
+- `python-jose[cryptography]`
 
-Todas estão fixadas em requirements/base.txt e instaladas via requirements.txt.
+As versões estão fixadas em `requirements/base.txt`.
+
+## Comportamento Esperado
+
+### Items
+
+- endpoint de leitura retorna uma lista em memória;
+- endpoint de criação devolve um item de resposta formatado.
+
+### Auth
+
+- `POST /auth/register` cria usuário com hash de senha;
+- `POST /auth/login` valida senha salva e retorna JWT;
+- o fluxo não usa mais fake login.
+
+### Accounts
+
+- `amount` precisa ser maior que zero;
+- saque acima do saldo retorna `400` com `Insufficient funds`;
+- conta inexistente retorna `404`.
+
+### AI
+
+- `500` quando `GEMINI_API_KEY` não está configurada;
+- `429` quando a quota do Gemini é excedida;
+- `502` quando a chamada ao provedor falha ou a resposta vem vazia/inesperada.
 
 ## Estrutura de Pastas
 
@@ -203,14 +238,21 @@ app/
   database.py
   db.py
   models.py
+  controllers/
+    base.py
+    accounts.py
   repositories/
     base.py
     accounts.py
+    user.py
   routes/
     items.py
     accounts.py
     auth.py
     ai.py
+  schemas/
+    account_schemas.py
+    auth_schemas.py
 main.py
 requirements.txt
 requirements/
@@ -219,6 +261,7 @@ requirements/
 
 ## Observações
 
-- O endpoint de autenticação fake-login é apenas para estudo.
-- Em produção, substitua por autenticação real com usuários persistidos e JWT.
-- A camada `routes` e a camada `repositories` seguem padrões para manter baixo acoplamento e alta coesão.
+- A autenticação JWT usa `SECRET_KEY` definida em `.env` para assinar tokens.
+- Os tokens carregam expiração e o usuário em `sub`.
+- Os campos do Swagger foram enriquecidos com `description` e `example` nos schemas Pydantic.
+- O endpoint de Gemini foi ajustado para a API atual do pacote `google-genai`.
